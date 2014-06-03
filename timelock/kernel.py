@@ -120,3 +120,17 @@ class PythonSHA256(Kernel):
             nonce = hashlib.sha256(nonce).digest()
         return nonce
 
+try:
+    import timelock.kernels.sha256
+
+    @AlgorithmSHA256.def_kernel
+    class OpenSSLSHA256(Kernel):
+        SHORT_NAME = 'openssl'
+        DESCRIPTION = 'OpenSSL-using C-extension'
+
+        @classmethod
+        def run(cls, nonce, n):
+            return timelock.kernels.sha256.run(nonce, n)
+
+except ImportError:
+    pass

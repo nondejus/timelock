@@ -3,6 +3,17 @@ By Peter Todd and Amir Taaki
 Only a single algorithm - SHA256 - is supported by design: timelock encryption
 works best if we're all on an even playing field.
 
+Requirements
+============
+
+python3-dev libssl-dev
+
+
+Build
+=====
+
+python3 setup.py build_ext --inplace
+
 
 Unit Tests
 ==========
