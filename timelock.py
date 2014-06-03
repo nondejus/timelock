@@ -19,12 +19,20 @@ if sys.version_info.major != 3:
 
 import argparse
 import bitcoin.core
+import bitcoin.base58
 import json
 import logging
 import time
 
 import timelock
 import timelock.kernel
+
+def pretty_json_dumps(obj):
+    return json.dumps(obj, indent=4, sort_keys=True)
+
+def pretty_json_dump(obj, fd):
+    fd.write(pretty_json_dumps(obj))
+    fd.write('\n')
 
 # Commands
 
@@ -90,27 +98,90 @@ def cmd_create(args):
 
     tl = timelock.Timelock(args.num_chains, per_chain_n)
 
-    args.file.write(json.dumps(tl.to_json(), indent=4, sort_keys=True))
-    args.file.write('\n')
+    pretty_json_dump(tl.to_json(), args.file)
     args.file.close()
 
 def cmd_compute(args):
-    tl = timelock.Timelock.from_json(json.loads(args.infile.read()))
+    tl = timelock.Timelock.from_json(json.loads(args.file.read()))
+
+    chain = tl.known_chains[args.index]
 
     start_time = time.clock()
-    done = False
-    while not done:
-        done = tl.compute(args.index, 1)
+    start_i = chain.i
 
-        logging.info('%d seconds; i = %d, n = %d, midstate = %s' % (
+    while not chain.unlock(1):
+
+        hashes_per_sec = (chain.i - start_i) / (time.clock() - start_time)
+        est_time_to_finish = (chain.n - chain.i) / hashes_per_sec
+
+        print('idx %d: %ds elapsed, ~%ds to go at %.4f Mhash/s, i = %d, midstate = %s' % (
+                     args.index,
                      time.clock() - start_time,
-                     tl.known_chains[args.index].n,
-                     tl.known_chains[args.index].i,
-                     bitcoin.core.b2x(tl.known_chains[args.index].midstate),
+                     est_time_to_finish,
+                     hashes_per_sec/1000000,
+                     chain.i,
+                     bitcoin.core.b2x(chain.midstate),
                      ))
 
-    done_json = tl.to_json()['known_chains'][args.index]
-    print(json.dumps(done_json, indent=4, sort_keys=True))
+    print('Done! Now run:')
+    print('%s addmidstate %s %d %d %s' % (
+        sys.argv[0],
+        args.file.name,
+        args.index,
+        chain.i,
+        bitcoin.core.b2x(chain.midstate)))
+
+def cmd_lock(args):
+    unlocked_tl = timelock.Timelock.from_json(json.loads(args.unlocked_file.read()))
+
+    locked_tl = unlocked_tl.make_locked()
+
+    pretty_json_dump(locked_tl.to_json(), args.locked_file)
+    args.locked_file.close()
+
+def cmd_unlock(args):
+    tl = timelock.Timelock.from_json(json.loads(args.file.read()))
+
+    start_time = time.clock()
+
+    while tl.secret is None:
+        tl.unlock(1)
+
+        args.file.seek(0)
+        pretty_json_dump(tl.to_json(), args.file)
+        args.file.truncate()
+
+    print('Success! Secret is %s' % bitcoin.core.b2x(tl.secret))
+
+def cmd_verify(args):
+    raise NotImplementedError
+
+def cmd_addsecret(args):
+    tl = timelock.Timelock.from_json(json.loads(args.file.read()))
+
+    # Try treating the secret as Base58 data first
+    try:
+        secret = bitcoin.base58.CBase58Data(args.secret)
+    except bitcoin.base58.Base58Error:
+        # Try treating it as hex data
+        secret = bitcoin.core.x(args.secret)
+
+    if tl.add_secret(secret):
+        print('Success!')
+    else:
+        print('Failed!')
+
+def cmd_addmidstate(args):
+    tl = timelock.Timelock.from_json(json.loads(args.file.read()))
+
+    tl.known_chains[args.chain_idx].i = args.i
+    tl.known_chains[args.chain_idx].midstate = args.midstate
+
+    args.file.seek(0)
+    pretty_json_dump(tl.to_json(), args.file)
+    args.file.truncate()
+    args.file.close()
+
 
 parser = argparse.ArgumentParser(description='Timelock encryption tool')
 parser.add_argument("-q","--quiet",action="count",default=0,
@@ -150,10 +221,41 @@ parser_create.add_argument('file', metavar='FILE', type=argparse.FileType('w'),
 parser_create.set_defaults(cmd_func=cmd_create)
 
 parser_compute = subparsers.add_parser('compute',
-    help='Compute a timelock')
+    help='Compute a timelock chain')
 parser_compute.add_argument('index', metavar='INDEX', type=int)
-parser_compute.add_argument('infile', metavar='IN-FILE', type=argparse.FileType('r'))
+parser_compute.add_argument('file', metavar='FILE', type=argparse.FileType('r'))
 parser_compute.set_defaults(cmd_func=cmd_compute)
+
+parser_verify = subparsers.add_parser('verify',
+    help='Verify a timelock chain')
+parser_verify.add_argument('index', metavar='INDEX', type=int)
+parser_verify.add_argument('file', metavar='FILE', type=argparse.FileType('r'))
+parser_verify.set_defaults(cmd_func=cmd_verify)
+
+parser_lock = subparsers.add_parser('lock',
+    help='Create a locked timelock from an unlocked timelock')
+parser_lock.add_argument('unlocked_file', metavar='UNLOCKED', type=argparse.FileType('r'))
+parser_lock.add_argument('locked_file', metavar='LOCKED', type=argparse.FileType('w'))
+parser_lock.set_defaults(cmd_func=cmd_lock)
+
+parser_unlock = subparsers.add_parser('unlock',
+    help='Unlock a locked timelock')
+parser_unlock.add_argument('file', metavar='FILE', type=argparse.FileType('r+'))
+parser_unlock.set_defaults(cmd_func=cmd_unlock)
+
+parser_addsecret = subparsers.add_parser('addsecret',
+    help='Add a newly found secret to a timelock')
+parser_addsecret.add_argument('file', metavar='FILE', type=argparse.FileType('r+'))
+parser_addsecret.add_argument('secret', metavar='SECRET', type=str)
+parser_addsecret.set_defaults(cmd_func=cmd_addsecret)
+
+parser_addmidstate = subparsers.add_parser('addmidstate',
+    help='Add a newly computed midstate to a timelock')
+parser_addmidstate.add_argument('file', metavar='FILE', type=argparse.FileType('r+'))
+parser_addmidstate.add_argument('chain_idx', metavar='CHAIN_IDX', type=int)
+parser_addmidstate.add_argument('i', metavar='IDX', type=int)
+parser_addmidstate.add_argument('midstate', metavar='MIDSTATE', type=bitcoin.core.x)
+parser_addmidstate.set_defaults(cmd_func=cmd_addmidstate)
 
 args = parser.parse_args()
 

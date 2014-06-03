@@ -49,6 +49,46 @@ class TimelockChain:
         self.i = 0
         self.midstate = self.iv
 
+    @staticmethod
+    def midstate_to_seckey(midstate):
+        return bitcoin.wallet.CBitcoinSecret.from_secret_bytes(midstate)
+
+    @staticmethod
+    def seckey_to_secret(seckey):
+        return hashlib.sha256(seckey.pub).digest()
+
+    @staticmethod
+    def secret_to_hashed_secret(secret):
+        return hashlib.new('ripemd160', secret).digest()
+
+    def add_secret(self, secret):
+        """Update chain with newly discovered secret
+
+        Returns True on success, False otherwise
+        """
+        if self.hashed_secret is None:
+            raise ValueError("Can't add secret if chain not yet computed!")
+
+        if self.hashed_secret == self.secret_to_hashed_secret(secret):
+            self.secret = secret
+            return True
+
+        else:
+            return False
+
+    def add_pubkey_secret(self, pubkey_secret):
+        """Add newly discovered pubkey secret to chain"""
+        secret = hashlib.sha256(pubkey_secret).digest()
+        return self.add_secret(secret)
+
+    def add_seckey(self, seckey):
+        """Add newly discovered seckey secret to chain
+
+        Returns True on succese, False otherwise
+        """
+        return self.add_pubkey_secret(seckey.pub)
+
+
     def unlock(self, t, j = None):
         """Unlock the timelock for up to t seconds
 
@@ -61,6 +101,9 @@ class TimelockChain:
         if j is None:
             j = self.n
 
+        if j > self.n:
+            raise ValueError('j > self.n')
+
         max_m = 1
         while self.i < j and time.clock() - start_time < t:
             t0 = time.clock()
@@ -70,18 +113,17 @@ class TimelockChain:
             self.midstate = self.algorithm.KERNELS[-1].run(self.midstate, m)
             self.i += m
 
-            if self.i == self.n:
-                # Done! Create the secret key, secret, and finally hashed
-                # secret.
-                self.seckey = bitcoin.wallet.CBitcoinSecret.from_secret_bytes(self.midstate)
-                self.secret = hashlib.sha256(self.seckey.pub).digest()
-                self.hashed_secret = hashlib.new('ripemd160', self.secret).digest()
-                break
-
             if time.clock() - t0 < 0.025:
                 max_m *= 2
 
         assert self.i <= self.n
+
+        if self.i == self.n:
+            # Done! Create the secret key, secret, and finally hashed
+            # secret.
+            self.seckey = self.midstate_to_seckey(self.midstate)
+            self.secret = self.seckey_to_secret(self.seckey)
+            self.hashed_secret = self.secret_to_hashed_secret(self.secret)
 
         return self.secret is not None
 
@@ -203,30 +245,24 @@ class Timelock:
 
         return self
 
-    def compute(self, i, t):
-        """Compute the timelock for up to t seconds
-
-        i - index of the chain to compute
-
-        Returns True if the specified chain is complete, False otherwise
-        """
-        if not (0 <= i < self.num_chains):
-            raise ValueError('i out of bounds')
-
-        if self.known_chains[i].unlock(t):
-            if i < self.num_chains-1:
-                # Encrypt IV for next chain
-                self.encrypted_ivs[i] = xor_bytes(self.known_chains[i].secret, self.known_chains[i+1].iv)
-
-        return self.known_chains[i].secret is not None
-
     def make_locked(self):
         """Create a locked timelock from a fully computed timelock
 
         Returns a new timelock
         """
-        if None in self.encrypted_ivs:
-            raise ValueError("Can't make locked timelock; current timelock not fully computed")
+
+        if len(self.known_chains) < self.num_chains:
+            # FIXME: there's gotta be a better way to explain this...
+            raise ValueError('Timelock is already locked!')
+
+        # Make sure every chain is fully computed
+        for (i, chain) in enumerate(self.known_chains):
+            if not chain.unlock(0):
+                raise ValueError("Chain %d is still locked" % i)
+
+            if i < self.num_chains - 1:
+                # Encrypt IV for next chain
+                self.encrypted_ivs[i] = xor_bytes(self.known_chains[i].secret, self.known_chains[i+1].iv)
 
         locked = self.__class__.__new__(self.__class__)
 
@@ -237,6 +273,27 @@ class Timelock:
         locked.encrypted_ivs = self.encrypted_ivs
 
         return locked
+
+    def add_secret(self, secret):
+        """Add newly discovered secret
+
+        All chains will be attempted and the encrypted_ivs will be updated
+        appropriately.
+
+        Returns True on success, False on failure
+        """
+        for known_chain in self.known_chains:
+            if known_chain.hashed_secret is None:
+                raise ValueError("Can't add secret if chain not yet computed!")
+
+            if known_chain.add_secret(secret):
+                return True
+            if known_chain.add_pubkey_secret(secret):
+                return True
+            if hasattr(secret, 'pub') and known_chain.add_seckey_secret(secret):
+                return True
+
+        return False
 
 
     def unlock(self, t):
