@@ -104,7 +104,7 @@ def cmd_create(args):
 def cmd_compute(args):
     tl = timelock.Timelock.from_json(json.loads(args.file.read()))
 
-    chain = tl.known_chains[args.index]
+    chain = tl.chains[args.index]
 
     start_time = time.clock()
     start_i = chain.i
@@ -174,8 +174,8 @@ def cmd_addsecret(args):
 def cmd_addmidstate(args):
     tl = timelock.Timelock.from_json(json.loads(args.file.read()))
 
-    tl.known_chains[args.chain_idx].i = args.i
-    tl.known_chains[args.chain_idx].midstate = args.midstate
+    tl.chains[args.chain_idx].i = args.i
+    tl.chains[args.chain_idx].midstate = args.midstate
 
     args.file.seek(0)
     pretty_json_dump(tl.to_json(), args.file)

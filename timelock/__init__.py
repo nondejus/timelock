@@ -17,6 +17,13 @@ import time
 
 import timelock.kernel
 
+def xor_bytes(a, b):
+    """Bytewise XOR"""
+    if len(a) != len(b):
+        raise ValueError('a and b must be same length')
+
+    return bytes([a[i] ^ b[i] for i in range(len(a))])
+
 class TimelockChain:
     # Hash algorithm
     algorithm = None
@@ -37,14 +44,13 @@ class TimelockChain:
     i = None
     midstate = None
 
-    def __init__(self, n, iv=None, algorithm=timelock.kernel.AlgorithmSHA256):
+    def __init__(self, n, iv=None, encrypted_iv=None, algorithm=timelock.kernel.AlgorithmSHA256):
         """Create a new timelock chain"""
 
         self.n = n
         self.algorithm = algorithm
-        if not iv:
-            iv = os.urandom(self.algorithm.NONCE_LENGTH)
         self.iv = iv
+        self.encrypted_iv = encrypted_iv
 
         self.i = 0
         self.midstate = self.iv
@@ -60,6 +66,18 @@ class TimelockChain:
     @staticmethod
     def secret_to_hashed_secret(secret):
         return hashlib.new('ripemd160', secret).digest()
+
+    def encrypt_iv(self, prev_secret):
+        if self.iv is None:
+            raise ValueError('Decrypted IV not available')
+        self.encrypted_iv = xor_bytes(self.iv, prev_secret)
+
+    def decrypt_iv(self, prev_secret):
+        if self.encrypted_iv is None:
+            raise ValueError('Encrypted IV not available')
+        self.iv = xor_bytes(self.encrypted_iv, prev_secret)
+        self.midstate = self.iv
+        self.i = 0
 
     def add_secret(self, secret):
         """Update chain with newly discovered secret
@@ -96,6 +114,13 @@ class TimelockChain:
 
         Returns True if the timelock is now unlocked, False otherwise.
         """
+        if self.i == 0:
+            self.midstate = self.iv
+
+        if self.midstate is None:
+            import pdb; pdb.set_trace()
+            raise ValueError("Can't unlock chain: midstate not available")
+
         start_time = time.clock()
 
         if j is None:
@@ -128,24 +153,17 @@ class TimelockChain:
         return self.secret is not None
 
 
-def xor_bytes(a, b):
-    """Bytewise XOR"""
-    if len(a) != len(b):
-        raise ValueError('a and b must be same length')
-
-    return bytes([a[i] ^ b[i] for i in range(len(a))])
 
 
 class Timelock:
     num_chains = None
-    known_chains = None
-    encrypted_ivs = None
+    chains = None
 
     @property
     def secret(self):
-        if len(self.known_chains) < self.num_chains:
+        if len(self.chains) < self.num_chains:
             return None
-        return self.known_chains[-1].secret
+        return self.chains[-1].secret
 
     def __init__(self, num_chains, n, algorithm=timelock.kernel.AlgorithmSHA256, ivs=None):
         """Create a new timelock
@@ -159,9 +177,8 @@ class Timelock:
         self.n = n
 
         if ivs is None:
-            ivs = [None for i in range(num_chains)]
-        self.known_chains = [TimelockChain(self.n, iv=ivs[i], algorithm=algorithm) for i in range(num_chains)]
-        self.encrypted_ivs = [None for i in range(num_chains-1)]
+            ivs = [os.urandom(self.algorithm.NONCE_LENGTH) for i in range(num_chains)]
+        self.chains = [TimelockChain(self.n, iv=ivs[i], algorithm=algorithm) for i in range(num_chains)]
 
     def to_json(self):
         """Convert to JSON-compatible primitives"""
@@ -176,10 +193,9 @@ class Timelock:
         r['algorithm'] = self.algorithm.SHORT_NAME
         r['num_chains'] = self.num_chains
         r['n'] = self.n
-        r['encrypted_ivs'] = [nb2x(iv) for iv in self.encrypted_ivs]
 
-        json_known_chains = []
-        for known_chain in self.known_chains:
+        json_chains = []
+        for known_chain in self.chains:
             json_known_chain = {}
 
 
@@ -187,6 +203,7 @@ class Timelock:
             assert(known_chain.n == self.n)
 
             json_known_chain['iv'] = nb2x(known_chain.iv)
+            json_known_chain['encrypted_iv'] = nb2x(known_chain.encrypted_iv)
 
             json_known_chain['n'] = known_chain.n
             json_known_chain['i'] = known_chain.i
@@ -199,9 +216,9 @@ class Timelock:
             json_known_chain['seckey'] = str(known_chain.seckey) if known_chain.seckey is not None else None
             json_known_chain['secret'] = nb2x(known_chain.secret)
 
-            json_known_chains.append(json_known_chain)
+            json_chains.append(json_known_chain)
 
-        r['known_chains'] = json_known_chains
+        r['chains'] = json_chains
 
         return r
 
@@ -220,12 +237,12 @@ class Timelock:
         self.algorithm = timelock.kernel.ALGORITHMS_BY_NAME[obj['algorithm']]
         self.num_chains = obj['num_chains']
         self.n = obj['n']
-        self.encrypted_ivs = [nx(iv) for iv in obj['encrypted_ivs']]
 
-        self.known_chains = []
-        for json_known_chain in obj['known_chains']:
+        self.chains = []
+        for json_known_chain in obj['chains']:
             known_chain = TimelockChain(self.n,
                                 iv=nx(json_known_chain['iv']),
+                                encrypted_iv=nx(json_known_chain['encrypted_iv']),
                                 algorithm=self.algorithm)
 
             known_chain.i = json_known_chain['i']
@@ -241,7 +258,7 @@ class Timelock:
             if known_chain.seckey is not None:
                 known_chain.seckey = bitcoin.wallet.CBitcoinSecret(known_chain.seckey)
 
-            self.known_chains.append(known_chain)
+            self.chains.append(known_chain)
 
         return self
 
@@ -251,38 +268,45 @@ class Timelock:
         Returns a new timelock
         """
 
-        if len(self.known_chains) < self.num_chains:
+        if len(self.chains) < self.num_chains:
             # FIXME: there's gotta be a better way to explain this...
             raise ValueError('Timelock is already locked!')
 
         # Make sure every chain is fully computed
-        for (i, chain) in enumerate(self.known_chains):
+        for (i, chain) in enumerate(self.chains):
             if not chain.unlock(0):
                 raise ValueError("Chain %d is still locked" % i)
 
-            if i < self.num_chains - 1:
-                # Encrypt IV for next chain
-                self.encrypted_ivs[i] = xor_bytes(self.known_chains[i].secret, self.known_chains[i+1].iv)
+            if 0 < i:
+                # Encrypt IV with previous secret
+                chain.encrypt_iv(self.chains[i-1].secret)
 
         locked = self.__class__.__new__(self.__class__)
 
         locked.algorithm = self.algorithm
         locked.num_chains = self.num_chains
         locked.n = self.n
-        locked.known_chains = [TimelockChain(self.n, iv=self.known_chains[0].iv, algorithm=self.algorithm)]
-        locked.encrypted_ivs = self.encrypted_ivs
+        locked.chains = []
+
+        for unlocked_chain in self.chains:
+            locked_chain = TimelockChain(self.n,
+                    iv=None, encrypted_iv=unlocked_chain.encrypted_iv,
+                    algorithm=self.algorithm)
+            locked_chain.hashed_secret = unlocked_chain.hashed_secret
+            locked.chains.append(locked_chain)
+
+        locked.chains[0].iv = self.chains[0].iv
 
         return locked
 
     def add_secret(self, secret):
         """Add newly discovered secret
 
-        All chains will be attempted and the encrypted_ivs will be updated
-        appropriately.
+        All chains will be attempted.
 
         Returns True on success, False on failure
         """
-        for known_chain in self.known_chains:
+        for known_chain in self.chains:
             if known_chain.hashed_secret is None:
                 raise ValueError("Can't add secret if chain not yet computed!")
 
@@ -304,18 +328,20 @@ class Timelock:
         start_time = time.clock()
 
         while self.secret is None and time.clock() - start_time < t:
-            if self.known_chains[-1].unlock(t):
-                # return early
-                t = -1
+            for (i, chain) in enumerate(self.chains):
+                if chain.secret is not None:
+                    continue
 
-                if len(self.known_chains) < self.num_chains:
-                    iv = xor_bytes(self.encrypted_ivs[len(self.known_chains)-1], self.known_chains[-1].secret)
+                if chain.iv is None:
+                    assert(i > 0)
 
-                    next_chain = TimelockChain(self.n, iv, self.algorithm)
-                    self.known_chains.append(next_chain)
+                    # Decrypt iv with previous chain's secret
+                    chain.decrypt_iv(self.chains[i-1].secret)
 
-                else:
-                    # This was the last chain; we're done!
-                    pass
+                if chain.unlock(t):
+                    # return early
+                    t = -1
+
+                break
 
         return self.secret is not None
