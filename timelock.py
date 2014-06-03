@@ -18,8 +18,12 @@ if sys.version_info.major != 3:
     raise ImportError("Python3 required")
 
 import argparse
+import bitcoin.core
+import json
 import logging
+import time
 
+import timelock
 import timelock.kernel
 
 # Commands
@@ -84,9 +88,29 @@ def cmd_create(args):
     per_chain_delay = delay / args.num_chains
     per_chain_n = int(hash_rate * per_chain_delay)
 
-    print(per_chain_n)
+    tl = timelock.Timelock(args.num_chains, per_chain_n)
 
+    args.file.write(json.dumps(tl.to_json(), indent=4, sort_keys=True))
+    args.file.write('\n')
+    args.file.close()
 
+def cmd_compute(args):
+    tl = timelock.Timelock.from_json(json.loads(args.infile.read()))
+
+    start_time = time.clock()
+    done = False
+    while not done:
+        done = tl.compute(args.index, 1)
+
+        logging.info('%d seconds; i = %d, n = %d, midstate = %s' % (
+                     time.clock() - start_time,
+                     tl.known_chains[args.index].n,
+                     tl.known_chains[args.index].i,
+                     bitcoin.core.b2x(tl.known_chains[args.index].midstate),
+                     ))
+
+    done_json = tl.to_json()['known_chains'][args.index]
+    print(json.dumps(done_json, indent=4, sort_keys=True))
 
 parser = argparse.ArgumentParser(description='Timelock encryption tool')
 parser.add_argument("-q","--quiet",action="count",default=0,
@@ -121,9 +145,15 @@ parser_create.add_argument('delay', type=str, metavar='DELAY[UNITS]',
         help='Desired unlocking delay')
 parser_create.add_argument('rate', type=float, metavar='RATE',
         help='Estimated hashing rate of the unlocker in MHash/sec')
-parser_create.add_argument('prefix', metavar='PREFIX',
-        help='Path and prefix to use')
+parser_create.add_argument('file', metavar='FILE', type=argparse.FileType('w'),
+        help='Filename')
 parser_create.set_defaults(cmd_func=cmd_create)
+
+parser_compute = subparsers.add_parser('compute',
+    help='Compute a timelock')
+parser_compute.add_argument('index', metavar='INDEX', type=int)
+parser_compute.add_argument('infile', metavar='IN-FILE', type=argparse.FileType('r'))
+parser_compute.set_defaults(cmd_func=cmd_compute)
 
 args = parser.parse_args()
 

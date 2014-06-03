@@ -147,6 +147,7 @@ class Timelock:
             json_known_chain['iv'] = nb2x(known_chain.iv)
 
             json_known_chain['n'] = known_chain.n
+            json_known_chain['i'] = known_chain.i
             json_known_chain['midstate'] = nb2x(known_chain.midstate)
 
             json_known_chain['hashed_secret'] = None
@@ -185,6 +186,7 @@ class Timelock:
                                 iv=nx(json_known_chain['iv']),
                                 algorithm=self.algorithm)
 
+            known_chain.i = json_known_chain['i']
             known_chain.midstate = nx(json_known_chain['midstate'])
 
             known_chain.hashed_secret = json_known_chain['hashed_secret']
