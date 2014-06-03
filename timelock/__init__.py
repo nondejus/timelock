@@ -9,10 +9,11 @@
 # propagated, or distributed except according to the terms contained in the
 # LICENSE file.
 
+import bitcoin.core
+import bitcoin.wallet
 import hashlib
 import os
 import time
-import bitcoin.wallet
 
 import timelock.kernel
 
@@ -97,7 +98,6 @@ class Timelock:
     num_chains = None
     known_chains = None
     encrypted_ivs = None
-    secret = None
 
     @property
     def secret(self):
@@ -120,6 +120,86 @@ class Timelock:
             ivs = [None for i in range(num_chains)]
         self.known_chains = [TimelockChain(self.n, iv=ivs[i], algorithm=algorithm) for i in range(num_chains)]
         self.encrypted_ivs = [None for i in range(num_chains-1)]
+
+    def to_json(self):
+        """Convert to JSON-compatible primitives"""
+
+        def nb2x(b):
+            if b is None:
+                return b
+            else:
+                return bitcoin.core.b2x(b)
+
+        r = {}
+        r['algorithm'] = self.algorithm.SHORT_NAME
+        r['num_chains'] = self.num_chains
+        r['n'] = self.n
+        r['encrypted_ivs'] = [nb2x(iv) for iv in self.encrypted_ivs]
+
+        json_known_chains = []
+        for known_chain in self.known_chains:
+            json_known_chain = {}
+
+
+            assert(known_chain.algorithm == self.algorithm)
+            assert(known_chain.n == self.n)
+
+            json_known_chain['iv'] = nb2x(known_chain.iv)
+
+            json_known_chain['n'] = known_chain.n
+            json_known_chain['midstate'] = nb2x(known_chain.midstate)
+
+            json_known_chain['hashed_secret'] = None
+            if known_chain.hashed_secret is not None:
+                json_known_chain['hashed_secret'] = str(bitcoin.wallet.CBitcoinAddress.from_bytes(known_chain.hashed_secret, 0))
+
+            json_known_chain['seckey'] = str(known_chain.seckey) if known_chain.seckey is not None else None
+            json_known_chain['secret'] = nb2x(known_chain.secret)
+
+            json_known_chains.append(json_known_chain)
+
+        r['known_chains'] = json_known_chains
+
+        return r
+
+
+    @classmethod
+    def from_json(cls, obj):
+        """Convert from JSON-compatible primitives"""
+        self = cls.__new__(cls)
+
+        def nx(x):
+            if x is None:
+                return None
+            else:
+                return bitcoin.core.x(x)
+
+        self.algorithm = timelock.kernel.ALGORITHMS_BY_NAME[obj['algorithm']]
+        self.num_chains = obj['num_chains']
+        self.n = obj['n']
+        self.encrypted_ivs = [nx(iv) for iv in obj['encrypted_ivs']]
+
+        self.known_chains = []
+        for json_known_chain in obj['known_chains']:
+            known_chain = TimelockChain(self.n,
+                                iv=nx(json_known_chain['iv']),
+                                algorithm=self.algorithm)
+
+            known_chain.midstate = nx(json_known_chain['midstate'])
+
+            known_chain.hashed_secret = json_known_chain['hashed_secret']
+            if known_chain.hashed_secret is not None:
+                known_chain.hashed_secret = bitcoin.wallet.CBitcoinAddress(known_chain.hashed_secret)
+
+            known_chain.secret = nx(json_known_chain['secret'])
+
+            known_chain.seckey = json_known_chain['seckey']
+            if known_chain.seckey is not None:
+                known_chain.seckey = bitcoin.wallet.CBitcoinSecret(known_chain.seckey)
+
+            self.known_chains.append(known_chain)
+
+        return self
 
     def compute(self, i, t):
         """Compute the timelock for up to t seconds

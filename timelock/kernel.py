@@ -14,6 +14,7 @@ import logging
 import time
 
 ALGORITHMS = []
+ALGORITHMS_BY_NAME = {}
 
 class Algorithm:
     """Kernel algorithm"""
@@ -36,6 +37,7 @@ class Algorithm:
 
 def def_algorithm(cls):
     ALGORITHMS.append(cls)
+    ALGORITHMS_BY_NAME[cls.SHORT_NAME] = cls
     return cls
 
 @def_algorithm
