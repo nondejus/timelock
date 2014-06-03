@@ -60,6 +60,34 @@ def cmd_listkernels(args):
     for kernel in sorted(all_kernels, key=lambda k: k.SHORT_NAME):
         print('%s - %s' % (kernel.SHORT_NAME, kernel.DESCRIPTION))
 
+def cmd_create(args):
+    delay = float(args.delay[:-1])
+    delay_units = args.delay[-1].lower()
+    if delay_units == 's':
+        delay *= 1
+    elif delay_units == 'm':
+        delay *= 60
+    elif delay_units == 'h':
+        delay *= 60*60
+    elif delay_units == 'd':
+        delay *= 60*60*24
+    elif delay_units == 'w':
+        delay *= 60*60*24*7
+    elif delay_units == 'y':
+        delay *= 60*60*24*365
+    else:
+        logging.error("Unknown delay units '%s'; must be one of s/m/h/d/w/y" % delay_units)
+        sys.exit(1)
+
+    hash_rate = args.rate * 1000000
+
+    per_chain_delay = delay / args.num_chains
+    per_chain_n = int(hash_rate * per_chain_delay)
+
+    print(per_chain_n)
+
+
+
 parser = argparse.ArgumentParser(description='Timelock encryption tool')
 parser.add_argument("-q","--quiet",action="count",default=0,
                              help="Be more quiet.")
@@ -80,9 +108,22 @@ parser_benchmark.add_argument('-t', type=float, default=1.0, dest='runtime',
         help='Time to run each benchmark for')
 parser_benchmark.add_argument('-n', type=int, default=5,
         help='# of runs per benchmark')
-parser_benchmark.add_argument('kernel', nargs='*',
+parser_benchmark.add_argument('kernel', nargs='*', metavar='KERNEL',
     help='Kernel to benchmark. May be specified multiple times; all available kernels if not specified.')
 parser_benchmark.set_defaults(cmd_func=cmd_benchmark)
+
+parser_create = subparsers.add_parser('create',
+    help='Create a new timelock')
+parser_create.add_argument('-n', type=int, default=10,
+        dest='num_chains',
+        help='# of parallel chains')
+parser_create.add_argument('delay', type=str, metavar='DELAY[UNITS]',
+        help='Desired unlocking delay')
+parser_create.add_argument('rate', type=float, metavar='RATE',
+        help='Estimated hashing rate of the unlocker in MHash/sec')
+parser_create.add_argument('prefix', metavar='PREFIX',
+        help='Path and prefix to use')
+parser_create.set_defaults(cmd_func=cmd_create)
 
 args = parser.parse_args()
 
