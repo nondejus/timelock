@@ -12,6 +12,7 @@
 import hashlib
 import os
 import time
+import bitcoin.wallet
 
 import timelock.kernel
 
@@ -25,7 +26,7 @@ class TimelockChain:
     # total # of hashes
     n = None
 
-    # result after the n hashes are computed; starts off as None
+    seckey = None
     secret = None
 
     # hash of the secret
@@ -69,7 +70,10 @@ class TimelockChain:
             self.i += m
 
             if self.i == self.n:
-                self.secret = self.midstate
+                # Done! Create the secret key, secret, and finally hashed
+                # secret.
+                self.seckey = bitcoin.wallet.CBitcoinSecret.from_secret_bytes(self.midstate)
+                self.secret = hashlib.sha256(self.seckey.pub).digest()
                 self.hashed_secret = hashlib.new('ripemd160', self.secret).digest()
                 break
 
