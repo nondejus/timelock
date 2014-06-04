@@ -256,8 +256,8 @@ parser_create.set_defaults(cmd_func=cmd_create)
 
 parser_compute = subparsers.add_parser('compute',
     help='Compute a timelock chain')
-parser_compute.add_argument('index', metavar='INDEX', type=int)
 parser_compute.add_argument('file', metavar='FILE', type=argparse.FileType('r'))
+parser_compute.add_argument('index', metavar='INDEX', type=int)
 parser_compute.set_defaults(cmd_func=cmd_compute)
 
 parser_lock = subparsers.add_parser('lock',
