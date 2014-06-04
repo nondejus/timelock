@@ -156,13 +156,10 @@ class TimelockChain:
 
 
 class Timelock:
-    num_chains = None
     chains = None
 
     @property
     def secret(self):
-        if len(self.chains) < self.num_chains:
-            return None
         return self.chains[-1].secret
 
     def __init__(self, num_chains, n, algorithm=timelock.kernel.AlgorithmSHA256, ivs=None):
@@ -173,7 +170,6 @@ class Timelock:
         """
 
         self.algorithm = algorithm
-        self.num_chains = num_chains
         self.n = n
 
         if ivs is None:
@@ -191,7 +187,6 @@ class Timelock:
 
         r = {}
         r['algorithm'] = self.algorithm.SHORT_NAME
-        r['num_chains'] = self.num_chains
         r['n'] = self.n
 
         json_chains = []
@@ -235,7 +230,6 @@ class Timelock:
                 return bitcoin.core.x(x)
 
         self.algorithm = timelock.kernel.ALGORITHMS_BY_NAME[obj['algorithm']]
-        self.num_chains = obj['num_chains']
         self.n = obj['n']
 
         self.chains = []
@@ -267,11 +261,6 @@ class Timelock:
 
         Returns a new timelock
         """
-
-        if len(self.chains) < self.num_chains:
-            # FIXME: there's gotta be a better way to explain this...
-            raise ValueError('Timelock is already locked!')
-
         # Make sure every chain is fully computed
         for (i, chain) in enumerate(self.chains):
             if not chain.unlock(0):
@@ -284,7 +273,6 @@ class Timelock:
         locked = self.__class__.__new__(self.__class__)
 
         locked.algorithm = self.algorithm
-        locked.num_chains = self.num_chains
         locked.n = self.n
         locked.chains = []
 
@@ -320,8 +308,10 @@ class Timelock:
         return False
 
 
-    def unlock(self, t):
+    def unlock(self, t, from_first_chain=False):
         """Unlock the timelock for up to t seconds
+
+        from_first_chain - Start at front rather than back.
 
         Returns True if the timelock is now unlocked, False if otherwise
         """
@@ -329,8 +319,17 @@ class Timelock:
 
         while self.secret is None and time.clock() - start_time < t:
 
-            # Find last chain for which we can get an iv and start working
-            for (i, chain) in reversed(tuple(enumerate(self.chains))):
+            enum_chains = tuple(enumerate(self.chains))
+
+            # If we don't care about unlocking all chains we can start at the
+            # last chain instead and work backwards.
+            if not from_first_chain:
+                enum_chains = reversed(enum_chains)
+
+            for (i, chain) in enum_chains:
+                if chain.secret is not None:
+                    continue
+
                 if chain.iv is None:
                     assert(i > 0)
 

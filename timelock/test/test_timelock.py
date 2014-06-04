@@ -51,48 +51,37 @@ class Test_Timelock(unittest.TestCase):
 
         # A single chain
         tl = timelock.Timelock(1, 3, ivs=[b'\x00'*32])
-        self.assertEqual(tl.num_chains, 1)
-        self.assertEqual(len(tl.encrypted_ivs), 0)
         self.assertEqual(tl.secret, None)
 
-        self.assertTrue(tl.compute(0, 1))
+        self.assertTrue(tl.unlock(1))
 
         # Unlocked now
-        self.assertEqual(len(tl.encrypted_ivs), 0)
         self.assertEqual(tl.secret, b'\xe55\xda\x89|\xf9r\xdb\xacx\x99\x9d&\xbc\xbc \xf0\xbchNr\xff\xa0AUE8\xabb\x13\x8b\x04')
 
         # Further computations do nothing
-        self.assertTrue(tl.compute(0, 1))
-        self.assertEqual(len(tl.encrypted_ivs), 0)
+        self.assertTrue(tl.unlock(1))
         self.assertEqual(tl.secret, b'\xe55\xda\x89|\xf9r\xdb\xacx\x99\x9d&\xbc\xbc \xf0\xbchNr\xff\xa0AUE8\xabb\x13\x8b\x04')
 
 
         # Two chains
         tl = timelock.Timelock(2, 3, ivs=[b'\x00'*32]*2)
-        self.assertEqual(tl.num_chains, 2)
-        self.assertEqual(tl.encrypted_ivs, [None])
         self.assertEqual(tl.secret, None)
 
         # Unlock first chain
-        self.assertTrue(tl.compute(0, 1))
+        self.assertFalse(tl.unlock(1, from_first_chain=True))
         self.assertEqual(tl.secret, None)
-        self.assertEqual(tl.encrypted_ivs, [b'\xe55\xda\x89|\xf9r\xdb\xacx\x99\x9d&\xbc\xbc \xf0\xbchNr\xff\xa0AUE8\xabb\x13\x8b\x04'])
+        self.assertEqual(tl.chains[0].secret, b'\xe55\xda\x89|\xf9r\xdb\xacx\x99\x9d&\xbc\xbc \xf0\xbchNr\xff\xa0AUE8\xabb\x13\x8b\x04')
 
         # Unlock second chain
-        self.assertTrue(tl.compute(1, 1))
+        self.assertTrue(tl.unlock(1, from_first_chain=True))
         self.assertEqual(tl.secret, b'\xe55\xda\x89|\xf9r\xdb\xacx\x99\x9d&\xbc\xbc \xf0\xbchNr\xff\xa0AUE8\xabb\x13\x8b\x04')
-        self.assertEqual(tl.encrypted_ivs, [b'\xe55\xda\x89|\xf9r\xdb\xacx\x99\x9d&\xbc\xbc \xf0\xbchNr\xff\xa0AUE8\xabb\x13\x8b\x04'])
 
 
         # Make a locked Timelock from our fully computed one
         tl2 = tl.make_locked()
         self.assertEqual(tl2.secret, None)
-        self.assertEqual(len(tl2.known_chains), 1)
+        self.assertEqual(len(tl2.chains), 2)
 
         self.assertFalse(tl2.unlock(1))
-        self.assertEqual(tl2.secret, None)
-        self.assertEqual(len(tl2.known_chains), 2)
-
         self.assertTrue(tl2.unlock(1))
-        self.assertEqual(len(tl2.known_chains), 2)
         self.assertEqual(tl2.secret, tl.secret)
