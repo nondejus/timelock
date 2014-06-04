@@ -11,6 +11,7 @@
 # propagated, or distributed except according to the terms contained in the
 # LICENSE file.
 
+VERSION = '0.1.0'
 
 import sys
 
@@ -220,6 +221,7 @@ parser.add_argument("-q","--quiet",action="count",default=0,
                              help="Be more quiet.")
 parser.add_argument("-v","--verbose",action="count",default=0,
                              help="Be more verbose. Both -v and -q may be used multiple times.")
+parser.add_argument('--version', action='version', version=VERSION)
 
 subparsers = parser.add_subparsers(title='Subcommands',
                                            description='All operations are done through subcommands:')
