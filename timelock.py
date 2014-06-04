@@ -171,6 +171,11 @@ def cmd_addsecret(args):
     else:
         print('Failed!')
 
+    args.file.seek(0)
+    pretty_json_dump(tl.to_json(), args.file)
+    args.file.truncate()
+    args.file.close()
+
 def cmd_addmidstate(args):
     tl = timelock.Timelock.from_json(json.loads(args.file.read()))
 

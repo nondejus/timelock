@@ -328,15 +328,19 @@ class Timelock:
         start_time = time.clock()
 
         while self.secret is None and time.clock() - start_time < t:
-            for (i, chain) in enumerate(self.chains):
-                if chain.secret is not None:
-                    continue
 
+            # Find last chain for which we can get an iv and start working
+            for (i, chain) in reversed(tuple(enumerate(self.chains))):
                 if chain.iv is None:
                     assert(i > 0)
 
-                    # Decrypt iv with previous chain's secret
-                    chain.decrypt_iv(self.chains[i-1].secret)
+                    # Can we decrypt iv with previous chain's secret?
+                    prev_chain = self.chains[i-1]
+                    if prev_chain.secret is not None:
+                        chain.decrypt_iv(prev_chain.secret)
+
+                    else:
+                        continue
 
                 if chain.unlock(t):
                     # return early
