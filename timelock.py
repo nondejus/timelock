@@ -296,4 +296,8 @@ elif args.verbosity == -1:
 elif args.verbosity < -2:
     logging.root.setLevel(logging.ERROR)
 
+
+if not hasattr(args, 'cmd_func'):
+    parser.error('No command specified')
+
 args.cmd_func(args)
