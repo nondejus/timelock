@@ -158,6 +158,8 @@ class TimelockChain:
 class Timelock:
     chains = None
 
+    VERSION = 1
+
     @property
     def secret(self):
         return self.chains[-1].secret
@@ -169,12 +171,9 @@ class Timelock:
         n          - # of hashes for each chain
         """
 
-        self.algorithm = algorithm
-        self.n = n
-
         if ivs is None:
-            ivs = [os.urandom(self.algorithm.NONCE_LENGTH) for i in range(num_chains)]
-        self.chains = [TimelockChain(self.n, iv=ivs[i], algorithm=algorithm) for i in range(num_chains)]
+            ivs = [os.urandom(algorithm.NONCE_LENGTH) for i in range(num_chains)]
+        self.chains = [TimelockChain(n, iv=ivs[i], algorithm=algorithm) for i in range(num_chains)]
 
     def to_json(self):
         """Convert to JSON-compatible primitives"""
@@ -186,32 +185,30 @@ class Timelock:
                 return bitcoin.core.b2x(b)
 
         r = {}
-        r['algorithm'] = self.algorithm.SHORT_NAME
-        r['n'] = self.n
+
+        r['version'] = self.VERSION
 
         json_chains = []
-        for known_chain in self.chains:
-            json_known_chain = {}
+        for chain in self.chains:
+            json_chain = {}
 
+            json_chain['algorithm'] = chain.algorithm.SHORT_NAME
 
-            assert(known_chain.algorithm == self.algorithm)
-            assert(known_chain.n == self.n)
+            json_chain['iv'] = nb2x(chain.iv)
+            json_chain['encrypted_iv'] = nb2x(chain.encrypted_iv)
 
-            json_known_chain['iv'] = nb2x(known_chain.iv)
-            json_known_chain['encrypted_iv'] = nb2x(known_chain.encrypted_iv)
+            json_chain['n'] = chain.n
+            json_chain['i'] = chain.i
+            json_chain['midstate'] = nb2x(chain.midstate)
 
-            json_known_chain['n'] = known_chain.n
-            json_known_chain['i'] = known_chain.i
-            json_known_chain['midstate'] = nb2x(known_chain.midstate)
+            json_chain['hashed_secret'] = None
+            if chain.hashed_secret is not None:
+                json_chain['hashed_secret'] = str(bitcoin.wallet.CBitcoinAddress.from_bytes(chain.hashed_secret, 0))
 
-            json_known_chain['hashed_secret'] = None
-            if known_chain.hashed_secret is not None:
-                json_known_chain['hashed_secret'] = str(bitcoin.wallet.CBitcoinAddress.from_bytes(known_chain.hashed_secret, 0))
+            json_chain['seckey'] = str(chain.seckey) if chain.seckey is not None else None
+            json_chain['secret'] = nb2x(chain.secret)
 
-            json_known_chain['seckey'] = str(known_chain.seckey) if known_chain.seckey is not None else None
-            json_known_chain['secret'] = nb2x(known_chain.secret)
-
-            json_chains.append(json_known_chain)
+            json_chains.append(json_chain)
 
         r['chains'] = json_chains
 
@@ -229,30 +226,31 @@ class Timelock:
             else:
                 return bitcoin.core.x(x)
 
-        self.algorithm = timelock.kernel.ALGORITHMS_BY_NAME[obj['algorithm']]
-        self.n = obj['n']
+        if obj['version'] != self.VERSION:
+            raise ValueError('Bad version!')
 
         self.chains = []
-        for json_known_chain in obj['chains']:
-            known_chain = TimelockChain(self.n,
-                                iv=nx(json_known_chain['iv']),
-                                encrypted_iv=nx(json_known_chain['encrypted_iv']),
-                                algorithm=self.algorithm)
+        for json_chain in obj['chains']:
+            algorithm = timelock.kernel.ALGORITHMS_BY_NAME[json_chain['algorithm']]
+            chain = TimelockChain(json_chain['n'],
+                                iv=nx(json_chain['iv']),
+                                encrypted_iv=nx(json_chain['encrypted_iv']),
+                                algorithm=algorithm)
 
-            known_chain.i = json_known_chain['i']
-            known_chain.midstate = nx(json_known_chain['midstate'])
+            chain.i = json_chain['i']
+            chain.midstate = nx(json_chain['midstate'])
 
-            known_chain.hashed_secret = json_known_chain['hashed_secret']
-            if known_chain.hashed_secret is not None:
-                known_chain.hashed_secret = bitcoin.wallet.CBitcoinAddress(known_chain.hashed_secret)
+            chain.hashed_secret = json_chain['hashed_secret']
+            if chain.hashed_secret is not None:
+                chain.hashed_secret = bitcoin.wallet.CBitcoinAddress(chain.hashed_secret)
 
-            known_chain.secret = nx(json_known_chain['secret'])
+            chain.secret = nx(json_chain['secret'])
 
-            known_chain.seckey = json_known_chain['seckey']
-            if known_chain.seckey is not None:
-                known_chain.seckey = bitcoin.wallet.CBitcoinSecret(known_chain.seckey)
+            chain.seckey = json_chain['seckey']
+            if chain.seckey is not None:
+                chain.seckey = bitcoin.wallet.CBitcoinSecret(chain.seckey)
 
-            self.chains.append(known_chain)
+            self.chains.append(chain)
 
         return self
 
@@ -272,14 +270,12 @@ class Timelock:
 
         locked = self.__class__.__new__(self.__class__)
 
-        locked.algorithm = self.algorithm
-        locked.n = self.n
         locked.chains = []
 
         for unlocked_chain in self.chains:
-            locked_chain = TimelockChain(self.n,
+            locked_chain = TimelockChain(unlocked_chain.n,
                     iv=None, encrypted_iv=unlocked_chain.encrypted_iv,
-                    algorithm=self.algorithm)
+                    algorithm=unlocked_chain.algorithm)
             locked_chain.hashed_secret = unlocked_chain.hashed_secret
             locked.chains.append(locked_chain)
 
@@ -294,15 +290,15 @@ class Timelock:
 
         Returns True on success, False on failure
         """
-        for known_chain in self.chains:
-            if known_chain.hashed_secret is None:
+        for chain in self.chains:
+            if chain.hashed_secret is None:
                 raise ValueError("Can't add secret if chain not yet computed!")
 
-            if known_chain.add_secret(secret):
+            if chain.add_secret(secret):
                 return True
-            if known_chain.add_pubkey_secret(secret):
+            if chain.add_pubkey_secret(secret):
                 return True
-            if hasattr(secret, 'pub') and known_chain.add_seckey_secret(secret):
+            if hasattr(secret, 'pub') and chain.add_seckey_secret(secret):
                 return True
 
         return False

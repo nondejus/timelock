@@ -57,10 +57,11 @@ def cmd_benchmark(args):
         run_results[kernel] = kernel.benchmark(args.runtime, args.n)
 
     if args.verbosity >= 0:
-        print('Kernel:\tmin\tavg\tmax (Mhash/second)')
+        # FIXME: should be able to better pretty-print this
+        print(' Kernel:\tmin\tavg\tmax\t(Mhash/second)')
         print()
     for kernel, run_times in sorted(run_results.items(), key=lambda k: k[0].SHORT_NAME):
-        print('%s:\t%.3f\t%.3f\t%.3f' % (
+        print('%7s:\t%.3f\t%.3f\t%.3f' % (
                     kernel.SHORT_NAME,
                     min(run_times) / 1000000,
                     (sum(run_times) / len(run_times)) / 1000000,
@@ -104,6 +105,10 @@ def cmd_create(args):
 def cmd_compute(args):
     tl = timelock.Timelock.from_json(json.loads(args.file.read()))
 
+    if not (0 <= args.index < len(tl.chains)):
+        logging.error('Index out of range; must be 0 <= idx < %d' % len(tl.chains))
+        sys.exit(1)
+
     chain = tl.chains[args.index]
 
     start_time = time.clock()
@@ -114,7 +119,7 @@ def cmd_compute(args):
         hashes_per_sec = (chain.i - start_i) / (time.clock() - start_time)
         est_time_to_finish = (chain.n - chain.i) / hashes_per_sec
 
-        print('idx %d: %ds elapsed, ~%ds to go at %.4f Mhash/s, i = %d, midstate = %s' % (
+        logging.info('chain #%d: %ds elapsed, %ds to go at %.4f Mhash/s, i = %d, midstate = %s' % (
                      args.index,
                      time.clock() - start_time,
                      est_time_to_finish,
@@ -143,18 +148,40 @@ def cmd_unlock(args):
     tl = timelock.Timelock.from_json(json.loads(args.file.read()))
 
     start_time = time.clock()
+    chain_idx = 0
+    sum_hashes = 0
 
     while tl.secret is None:
-        tl.unlock(1)
+        # ugh, this needs serious refactoring
+        prev_chain_i = tl.chains[chain_idx].i
+
+        if not tl.unlock(1):
+            sum_hashes += tl.chains[chain_idx].i-prev_chain_i
+
+            if tl.chains[chain_idx].secret is not None:
+                logging.info('Done chain #%d' % chain_idx)
+                chain_idx += 1
+
+            else:
+                hashes_per_sec = sum_hashes / (time.clock() - start_time)
+
+                sum_hashes_left = ((tl.chains[chain_idx].n - tl.chains[chain_idx].i)
+                                   + sum([chain.n for chain in tl.chains[chain_idx+1:]]))
+
+                est_time_to_finish = sum_hashes_left / hashes_per_sec
+
+                logging.info('chain #%d: %ds elapsed, %ds to go at %.4f Mhash/s' % (
+                             chain_idx,
+                             time.clock() - start_time,
+                             est_time_to_finish,
+                             hashes_per_sec/1000000,
+                             ))
 
         args.file.seek(0)
         pretty_json_dump(tl.to_json(), args.file)
         args.file.truncate()
 
     print('Success! Secret is %s' % bitcoin.core.b2x(tl.secret))
-
-def cmd_verify(args):
-    raise NotImplementedError
 
 def cmd_addsecret(args):
     tl = timelock.Timelock.from_json(json.loads(args.file.read()))
@@ -231,12 +258,6 @@ parser_compute.add_argument('index', metavar='INDEX', type=int)
 parser_compute.add_argument('file', metavar='FILE', type=argparse.FileType('r'))
 parser_compute.set_defaults(cmd_func=cmd_compute)
 
-parser_verify = subparsers.add_parser('verify',
-    help='Verify a timelock chain')
-parser_verify.add_argument('index', metavar='INDEX', type=int)
-parser_verify.add_argument('file', metavar='FILE', type=argparse.FileType('r'))
-parser_verify.set_defaults(cmd_func=cmd_verify)
-
 parser_lock = subparsers.add_parser('lock',
     help='Create a locked timelock from an unlocked timelock')
 parser_lock.add_argument('unlocked_file', metavar='UNLOCKED', type=argparse.FileType('r'))
@@ -266,13 +287,13 @@ args = parser.parse_args()
 
 args.verbosity = args.verbose - args.quiet
 
-if args.verbosity == 1:
+if args.verbosity == 0:
     logging.root.setLevel(logging.INFO)
-elif args.verbosity > 2:
+elif args.verbosity > 1:
     logging.root.setLevel(logging.DEBUG)
-elif args.verbosity == 0:
+elif args.verbosity == -1:
     logging.root.setLevel(logging.WARNING)
-elif args.verbosity < 0:
+elif args.verbosity < -2:
     logging.root.setLevel(logging.ERROR)
 
 args.cmd_func(args)
