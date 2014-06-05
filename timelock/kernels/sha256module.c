@@ -25,7 +25,7 @@ sha256_run(PyObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "s#K", &iv, &iv_length, &n))
         return NULL;
 
-    if (iv_length != SHA256_DIGEST_LENGTH)
+    if (((int) iv_length) != SHA256_DIGEST_LENGTH)
         return NULL;
 
     memcpy(midstate, iv, SHA256_DIGEST_LENGTH);
