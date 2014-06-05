@@ -2,10 +2,10 @@ Timelock
 ========
 
 Create a secret key that can be decrypted in a known amount of time using
-parallel-serial hash chains. The creator can compute the timelock in parallel,
-taking advantage of the large amount of cheap parallelism available today,
-while others are forced to compute it serially, constrained by the lack of
-scalar performance growth.
+parallel-serial hash chains.(1) The creator can compute the timelock in
+parallel, taking advantage of the large amount of cheap parallelism available
+today, while others are forced to compute it serially, constrained by the lack
+of scalar performance growth.
 
 The chains are constructed such that Bitcoin addresses can be derived from them
 and bounties placed, incentivizing third-parties to crack the timelocks. This
@@ -100,7 +100,22 @@ not backed up prior to modification.
 But hey, v0.1.0 was thrown together in a few hours.
 
 
+Todo
+====
+
+- Automate scanning for revealed secrets and collection of bounties
+- Add an easy way to pay to the bounty addresses
+- Provide a way for bounty posters to put IV info in blockchain itself w/
+  OP_RETURN proved sacrifice to deter fake chains.
+
+
 Credits
 =======
 
 Thanks goes to Amir Taaki for helping develop the initial concept.
+
+
+References
+==========
+
+1) http://www.gwern.net/Self-decrypting%20files
