@@ -11,7 +11,7 @@
 # propagated, or distributed except according to the terms contained in the
 # LICENSE file.
 
-VERSION = '0.1.0'
+VERSION = '0.1.1'
 
 import sys
 
