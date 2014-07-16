@@ -229,7 +229,6 @@ subparsers = parser.add_subparsers(title='Subcommands',
 parser_listkernels = subparsers.add_parser('listkernels',
     help='List available kernels')
 parser_listkernels.set_defaults(cmd_func=cmd_listkernels)
-parser_listkernels.set_defaults(cmd_func=cmd_listkernels)
 
 parser_benchmark = subparsers.add_parser('benchmark',
     help='Benchmark chain kernel(s)')
