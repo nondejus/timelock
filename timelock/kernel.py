@@ -102,9 +102,9 @@ class Kernel:
         for i in range(num_runs):
             dt = time_run(n)
 
-            hash_per_second = n / runtime
+            hash_per_second = n / dt
             run_results.append(hash_per_second)
-            logging.info('Run %d/%d: %.2f Mhash/s' % (i+1, num_runs, hash_per_second/1000000))
+            logging.info('Run %d/%d: %.3f Mhash/s' % (i+1, num_runs, hash_per_second/1000000))
 
         return run_results
 
