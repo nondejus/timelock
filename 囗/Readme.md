@@ -1,1 +1,8 @@
-![](https://github.com/nondejus/timelock/blob/master/%E5%9B%97/ArtBoard%20Image%20(501).jpg)
+# U+0008
+
+6 6 4 2    時 time, season; era, age, period
+9 5 9 3    間 interval, space; place, between
+9 3 9 6    鎖 lock, padlock; shackles, chains
+5 B 9 A    定 decide, settle, fix
+
+0x6642959393965B9A
