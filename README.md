@@ -1,4 +1,4 @@
-Timelock
+timelock
 ========
 
 Create a secret key that can be decrypted in a known amount of time using
@@ -7,8 +7,6 @@ parallel, taking advantage of the large amount of cheap parallelism available
 today, while others are forced to compute it serially, constrained by the lack
 of scalar performance growth.
 ![](https://github.com/nondejus/timelock/blob/master/%E5%9B%97/ArtBoard%20Image%20(500).jpg) 
-
-
 
 The chains are constructed such that Bitcoin addresses can be derived from them
 and bounties placed, incentivizing third-parties to crack the timelocks. This
